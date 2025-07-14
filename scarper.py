@@ -51,11 +51,11 @@ def get_user_input() -> tuple[str, str, int, str, str, str]:
         print("❌ Job location cannot be empty!")
         job_location = input("📍 Enter the job location: ").strip()
 
-    # Date posted filter
+    # Date posted filter - Set to Past Week by default
     print("\n🗓️ Job Posted Date:")
-    print("1. Any time (default)")
+    print("1. Any time")
     print("2. Past month")
-    print("3. Past week")
+    print("3. Past week (default) ⭐")
     print("4. Past 24 hours")
     date_filter_map = {
         "1": "",           # Any time
@@ -64,14 +64,14 @@ def get_user_input() -> tuple[str, str, int, str, str, str]:
         "4": "r86400"      # Past 24 hours (1 day)
     }
     while True:
-        date_choice = input("Select job posted date filter (1-4): ").strip() or "1"
+        date_choice = input("Select job posted date filter (1-4, default: 3): ").strip() or "3"
         if date_choice in date_filter_map:
             break
         print("❌ Please enter 1, 2, 3, or 4!")
     date_filter = date_filter_map[date_choice]
 
-    # Experience level filter
-    print("\n🎓 Experience Level:")
+    # Experience level filter - Multiple selection support
+    print("\n🎓 Experience Level (Multiple Selection):")
     print("1. Any level (default)")
     print("2. Internship")
     print("3. Entry level")
@@ -79,6 +79,9 @@ def get_user_input() -> tuple[str, str, int, str, str, str]:
     print("5. Mid-Senior level")
     print("6. Director")
     print("7. Executive")
+    print("\n💡 You can select multiple levels by entering numbers separated by commas (e.g., 2,3,4)")
+    print("   Or enter 'all' to select all levels, or press Enter for 'Any level'")
+    
     exp_filter_map = {
         "1": "",   # Any level
         "2": "1",  # Internship
@@ -88,12 +91,39 @@ def get_user_input() -> tuple[str, str, int, str, str, str]:
         "6": "5",  # Director
         "7": "6"   # Executive
     }
+    
     while True:
-        exp_choice = input("Select experience level filter (1-7): ").strip() or "1"
-        if exp_choice in exp_filter_map:
+        exp_choice = input("Select experience level(s) (1-7, comma-separated, 'all', or Enter for any): ").strip()
+        
+        if not exp_choice:
+            exp_filter = ""
             break
-        print("❌ Please enter a number from 1 to 7!")
-    exp_filter = exp_filter_map[exp_choice]
+        elif exp_choice.lower() == "all":
+            # Select all specific levels (2-7)
+            exp_filter = ",".join([exp_filter_map[str(i)] for i in range(2, 8)])
+            break
+        else:
+            # Parse comma-separated selections
+            try:
+                selected_levels = [x.strip() for x in exp_choice.split(",")]
+                valid_levels = []
+                for level in selected_levels:
+                    if level in exp_filter_map:
+                        if level == "1":  # "Any level" overrides others
+                            valid_levels = [""]
+                            break
+                        valid_levels.append(exp_filter_map[level])
+                    else:
+                        print(f"❌ Invalid level '{level}'. Please enter numbers 1-7.")
+                        break
+                else:
+                    if valid_levels:
+                        exp_filter = ",".join(valid_levels)
+                        break
+                    else:
+                        print("❌ Please select at least one valid level!")
+            except Exception:
+                print("❌ Invalid input. Please enter numbers separated by commas.")
 
     while True:
         max_jobs_input = input("📊 How many jobs to scrape? (default: 25, max: 100): ").strip()
@@ -143,7 +173,12 @@ def fetch_job_ids(title: str, location: str, max_jobs: int, date_filter: str = "
     start = 0
     page_size = 25
     while len(ids) < max_jobs:
-        url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={title}&location={location}&start={start}"
+        # Build URL with proper encoding for special characters
+        import urllib.parse
+        encoded_title = urllib.parse.quote(title)
+        encoded_location = urllib.parse.quote(location)
+        
+        url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={encoded_title}&location={encoded_location}&start={start}"
         params = []
         if date_filter:
             params.append(f"f_TPR={date_filter}")
@@ -269,7 +304,7 @@ def display_and_save_results(df: pd.DataFrame, filename: str) -> bool:
         print(f"   📍 Location: {job['job_location'] or 'Unknown Location'}")
         print(f"   📅 Posted: {job['time_posted'] or 'Unknown'}")
         print(f"   👥 Applicants: {job['num_applicants'] or 'Unknown'}")
-        print(f"   🔗 Link: {job['job_url']}")
+        print(f"   🔗 **APPLY HERE:** {job['job_url']}")
         if job['job_description_preview']:
             print(f"   📝 Description: {job['job_description_preview']}")
         print("-" * 80)
@@ -302,6 +337,41 @@ def main():
         print(f"   💾 Output File: {filename}")
         print(f"   🗓️ Date Posted Filter: {date_filter or 'Any time'}")
         print(f"   🎓 Experience Level Filter: {exp_filter or 'Any level'}")
+        
+        # Show date filter in human-readable format
+        if date_filter == "r604800":
+            print(f"   ⏰ **Searching for jobs posted in the last 7 days**")
+        elif date_filter == "r2592000":
+            print(f"   ⏰ **Searching for jobs posted in the last 30 days**")
+        elif date_filter == "r86400":
+            print(f"   ⏰ **Searching for jobs posted in the last 24 hours**")
+        else:
+            print(f"   ⏰ **Searching for jobs from any time**")
+        
+        # Show experience level filter in human-readable format
+        exp_level_names = {
+            "": "Any level",
+            "1": "Internship",
+            "2": "Entry level", 
+            "3": "Associate",
+            "4": "Mid-Senior level",
+            "5": "Director",
+            "6": "Executive"
+        }
+        
+        if exp_filter:
+            if "," in exp_filter:
+                # Multiple levels selected
+                selected_levels = exp_filter.split(",")
+                level_names = [exp_level_names.get(level, f"Level {level}") for level in selected_levels]
+                print(f"   🎓 **Experience Levels:** {', '.join(level_names)}")
+            else:
+                # Single level selected
+                level_name = exp_level_names.get(exp_filter, f"Level {exp_filter}")
+                print(f"   🎓 **Experience Level:** {level_name}")
+        else:
+            print(f"   🎓 **Experience Level:** Any level")
+        
         print("-" * 60)
         proceed = input("\n🤔 Proceed with scraping? (y/n): ").strip().lower()
         if proceed not in ['y', 'yes']:
